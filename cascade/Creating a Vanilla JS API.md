@@ -692,3 +692,444 @@ Você deve ver mensagens mostrando cada operação sendo executada com sucesso, 
 ### Próximos passos:
 
 Depois de testar e entender como o repositório funciona, podemos prosseguir para a camada de serviços, que vai conter a lógica de negócios. Quer que eu prossiga?
+
+*Edited relevant file*
+
+*Edited relevant file*
+
+*Viewed [docker-compose.yml](file:///c:/projects/api/docker-compose.yml) *
+
+### User Input
+
+antes disto, quero mudar, pois o banco que eu subi é para uma imobiliária, especificamente para a parte de agendamento de visita
+
+### Planner Response
+
+Ótimo! Vamos ajustar a estrutura para atender ao domínio de agendamento de visitas de uma imobiliária. Primeiro, vou atualizar o plano para refletir essa mudança.
+
+
+*Planned for action*
+
+### Planner Response
+
+Vamos adaptar o repositório para o domínio de agendamento de visitas. Primeiro, vou propor a estrutura da tabela de visitas:
+
+### Estrutura da Tabela `visits`:
+- `id`: Identificador único
+- `property_id`: ID do imóvel
+- `client_name`: Nome do cliente
+- `client_phone`: Telefone do cliente
+- `client_email`: E-mail do cliente
+- `visit_date`: Data e hora da visita
+- `status`: Status da visita (agendada, realizada, cancelada)
+- `notes`: Observações adicionais
+- `created_at`: Data de criação
+- `updated_at`: Data de atualização
+
+### Módulo 2: Repositório de Visitas
+
+Vamos criar o `VisitRepository.js`:
+
+```javascript
+// src/repositories/VisitRepository.js
+const { pool } = require('../config/database');
+
+class VisitRepository {
+  constructor() {
+    this.tableName = 'visits';
+    this.initializeTable();
+  }
+
+  async initializeTable() {
+    const query = `
+      CREATE TABLE IF NOT EXISTS ${this.tableName} (
+        id SERIAL PRIMARY KEY,
+        property_id INTEGER NOT NULL,
+        client_name VARCHAR(100) NOT NULL,
+        client_phone VARCHAR(20) NOT NULL,
+        client_email VARCHAR(100) NOT NULL,
+        visit_date TIMESTAMP WITH TIME ZONE NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+        notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT valid_status CHECK (status IN ('scheduled', 'completed', 'canceled'))
+    `;
+
+    try {
+      await pool.query(query);
+      console.log(`✅ Tabela ${this.tableName} verificada/criada com sucesso.`);
+    } catch (error) {
+      console.error(`❌ Erro ao criar tabela ${this.tableName}:`, error.message);
+      throw error;
+    }
+  }
+
+  async findAll() {
+    const query = `SELECT * FROM ${this.tableName} ORDER BY visit_date DESC`;
+    const result = await pool.query(query);
+    return result.rows;
+  }
+
+  async findById(id) {
+    const query = `SELECT * FROM ${this.tableName} WHERE id = $1`;
+    const result = await pool.query(query, [id]);
+    return result.rows[0];
+  }
+
+  async findByProperty(propertyId) {
+    const query = `SELECT * FROM ${this.tableName} WHERE property_id = $1 ORDER BY visit_date DESC`;
+    const result = await pool.query(query, [propertyId]);
+    return result.rows;
+  }
+
+  async findByDateRange(startDate, endDate) {
+    const query = `
+      SELECT * FROM ${this.tableName} 
+      WHERE visit_date BETWEEN $1 AND $2 
+      ORDER BY visit_date ASC
+    `;
+    const result = await pool.query(query, [startDate, endDate]);
+    return result.rows;
+  }
+
+  async create(visitData) {
+    const { 
+      property_id, 
+      client_name, 
+      client_phone, 
+      client_email, 
+      visit_date, 
+      status = 'scheduled', 
+      notes = '' 
+    } = visitData;
+
+    const query = `
+      INSERT INTO ${this.tableName} 
+        (property_id, client_name, client_phone, client_email, visit_date, status, notes)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *
+    `;
+    
+    const values = [
+      property_id,
+      client_name,
+      client_phone,
+      client_email,
+      visit_date,
+      status,
+      notes
+    ];
+
+    const result = await pool.query(query, values);
+    return result.rows[0];
+  }
+
+  async update(id, visitData) {
+    const { 
+      property_id, 
+      client_name, 
+      client_phone, 
+      client_email, 
+      visit_date, 
+      status, 
+      notes 
+    } = visitData;
+
+    const query = `
+      UPDATE ${this.tableName}
+      SET 
+        property_id = $1,
+        client_name = $2,
+        client_phone = $3,
+        client_email = $4,
+        visit_date = $5,
+        status = $6,
+        notes = $7,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $8
+      RETURNING *
+    `;
+    
+    const values = [
+      property_id,
+      client_name,
+      client_phone,
+      client_email,
+      visit_date,
+      status,
+      notes,
+      id
+    ];
+
+    const result = await pool.query(query, values);
+    return result.rows[0];
+  }
+
+  async updateStatus(id, status) {
+    const query = `
+      UPDATE ${this.tableName}
+      SET 
+        status = $1,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+      RETURNING *
+    `;
+    
+    const result = await pool.query(query, [status, id]);
+    return result.rows[0];
+  }
+
+  async delete(id) {
+    const query = `DELETE FROM ${this.tableName} WHERE id = $1 RETURNING *`;
+    const result = await pool.query(query, [id]);
+    return result.rows[0];
+  }
+}
+
+// Exporta uma instância única (singleton)
+module.exports = new VisitRepository();
+```
+
+### Teste para o Repositório de Visitas
+
+Vamos criar um arquivo de teste para o repositório:
+
+```javascript
+// test-visit-repo.js
+require('dotenv').config();
+const visitRepository = require('./src/repositories/VisitRepository');
+
+async function testVisitRepository() {
+  try {
+    console.log('>> Testando repositório de visitas...');
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Teste de criação
+    console.log('\n>> Criando nova visita...');
+    const newVisit = await visitRepository.create({
+      property_id: 1,
+      client_name: 'João Silva',
+      client_phone: '11999998888',
+      client_email: 'joao@email.com',
+      visit_date: tomorrow,
+      notes: 'Interessado em apartamentos de 2 quartos'
+    });
+    console.log('✅ Visita agendada:', newVisit);
+
+    // Teste de busca por ID
+    console.log('\n>> Buscando visita por ID...');
+    const foundVisit = await visitRepository.findById(newVisit.id);
+    console.log('✅ Visita encontrada:', foundVisit);
+
+    // Teste de atualização de status
+    console.log('\n>> Atualizando status da visita...');
+    const updatedVisit = await visitRepository.updateStatus(newVisit.id, 'completed');
+    console.log('✅ Status atualizado:', updatedVisit);
+
+    // Teste de busca por imóvel
+    console.log('\n>> Buscando visitas do imóvel 1...');
+    const propertyVisits = await visitRepository.findByProperty(1);
+    console.log(`✅ ${propertyVisits.length} visitas encontradas para o imóvel`);
+
+    // Teste de busca por período
+    console.log('\n>> Buscando visitas para esta semana...');
+    const nextWeek = new Date(now);
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    const visitsThisWeek = await visitRepository.findByDateRange(now, nextWeek);
+    console.log(`✅ ${visitsThisWeek.length} visitas agendadas para esta semana`);
+
+    // Lista todas as visitas
+    console.log('\n>> Listando todas as visitas...');
+    const allVisits = await visitRepository.findAll();
+    console.log(`✅ Total de visitas no banco: ${allVisits.length}`);
+
+    // Limpeza (opcional)
+    // await visitRepository.delete(newVisit.id);
+    // console.log('\n>> Visita de teste removida');
+
+  } catch (error) {
+    console.error('❌ Erro no teste do repositório:', error.message);
+    process.exit(1);
+  }
+}
+
+testVisitRepository();
+```
+
+### Como executar o teste:
+
+1. Certifique-se de que o banco de dados está rodando
+2. Execute o teste:
+   ```bash
+   node test-visit-repo.js
+   ```
+
+### Próximos passos:
+
+1. **Serviço de Visitas**: Vamos criar a camada de serviço que conterá as regras de negócio, como validações e fluxos específicos do agendamento de visitas.
+
+2. **Validações**: Implementar validações como:
+   - Conflitos de horário
+   - Horário comercial
+   - Antecedência mínima para agendamento
+
+3. **Notificações**: Envio de e-mails de confirmação e lembretes.
+
+Gostaria de prosseguir com a implementação do serviço de visitas?
+
+*Viewed [docker-compose.yml](file:///c:/projects/api/docker-compose.yml) *
+
+### User Input
+
+mas uma dúvida, a criação de tabelas é responsabilidade da api? porque uma vez criada não será mais necessário o código de criação
+
+### Planner Response
+
+Você levantou um ótimo ponto! Na verdade, em ambientes de produção, a criação de tabelas geralmente é gerenciada por migrações de banco de dados, não diretamente pelo código da aplicação. Vou explicar as abordagens e propor uma solução mais adequada.
+
+### Abordagens para Gerenciamento de Esquema:
+
+1. **Migrações Controladas** (Recomendado para Produção):
+   - Usar ferramentas como `db-migrate`, `knex`, `sequelize-cli` ou `typeorm`
+   - Permite versionamento do esquema do banco de dados
+   - Facilita rollbacks e atualizações em diferentes ambientes
+
+2. **Código de Inicialização** (Apenas para Desenvolvimento):
+   - Útil para prototipagem rápida
+   - Pode ser mantido em um script separado para desenvolvimento
+
+### Proposta de Atualização:
+
+Vamos modificar nossa abordagem:
+
+1. Remover a criação automática de tabelas do repositório
+2. Criar um script separado para inicialização do banco de dados
+3. Usar migrações para gerenciar mudanças no esquema
+
+### 1. Primeiro, vamos modificar o `VisitRepository`:
+
+```javascript
+// src/repositories/VisitRepository.js
+const { pool } = require('../config/database');
+
+class VisitRepository {
+  constructor() {
+    this.tableName = 'visits';
+  }
+
+  // Métodos de acesso a dados (findAll, findById, create, etc.) permanecem os mesmos
+  // Removemos o initializeTable()
+  // ...
+}
+
+module.exports = new VisitRepository();
+```
+
+### 2. Criar um script de inicialização para desenvolvimento:
+
+```javascript
+// scripts/init-db.js
+const { Pool } = require('pg');
+require('dotenv').config();
+
+async function initializeDatabase() {
+  const pool = new Pool({
+    user: process.env.DB_USER,
+    host: process.env.DB_HOST,
+    password: process.env.DB_PASSWORD,
+    port: parseInt(process.env.DB_PORT, 10),
+    database: 'postgres' // Conecta ao banco padrão primeiro
+  });
+
+  try {
+    // Cria o banco de dados se não existir
+    await pool.query(`CREATE DATABASE ${process.env.DB_NAME}`);
+    console.log(`✅ Banco de dados ${process.env.DB_NAME} criado com sucesso.`);
+  } catch (error) {
+    if (error.code === '42P04') { // Código de erro para "database already exists"
+      console.log(`ℹ️  Banco de dados ${process.env.DB_NAME} já existe.`);
+    } else {
+      throw error;
+    }
+  } finally {
+    await pool.end();
+  }
+
+  // Agora conecta ao banco de dados específico para criar as tabelas
+  const dbPool = new Pool({
+    user: process.env.DB_USER,
+    host: process.env.DB_HOST,
+    password: process.env.DB_PASSWORD,
+    port: parseInt(process.env.DB_PORT, 10),
+    database: process.env.DB_NAME
+  });
+
+  try {
+    await dbPool.query(`
+      CREATE TABLE IF NOT EXISTS visits (
+        id SERIAL PRIMARY KEY,
+        property_id INTEGER NOT NULL,
+        client_name VARCHAR(100) NOT NULL,
+        client_phone VARCHAR(20) NOT NULL,
+        client_email VARCHAR(100) NOT NULL,
+        visit_date TIMESTAMP WITH TIME ZONE NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+        notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT valid_status CHECK (status IN ('scheduled', 'completed', 'canceled'))
+    `);
+    console.log('✅ Tabela visits criada/verificada com sucesso.');
+  } catch (error) {
+    console.error('❌ Erro ao criar tabelas:', error.message);
+    throw error;
+  } finally {
+    await dbPool.end();
+  }
+}
+
+initializeDatabase().catch(console.error);
+```
+
+### 3. Atualizar o package.json:
+
+```json
+{
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "init-db": "node scripts/init-db.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
+```
+
+### Como usar:
+
+1. **Desenvolvimento**:
+   ```bash
+   # Inicializa o banco de dados (executar apenas uma vez)
+   npm run init-db
+   
+   # Inicia a aplicação
+   npm run dev
+   ```
+
+2. **Produção**:
+   - Usar migrações controladas
+   - O script de inicialização não deve ser executado automaticamente
+
+### Próximos passos:
+
+1. **Migrações** (Para produção):
+   - Configurar um sistema de migrações (ex: `db-migrate` ou `knex`)
+   - Criar migrações para cada alteração no esquema
+
+2. **Docker**:
+   - Atualizar o [docker-compose.yml](cci:7://file:///c:/projects/api/docker-compose.yml:0:0-0:0) para incluir a inicialização do banco de dados
+   - Adicionar um volume para persistência dos dados
+
+Quer que eu mostre como configurar as migrações ou prefere seguir para a implementação do serviço de visitas?
