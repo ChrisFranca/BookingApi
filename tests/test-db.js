@@ -6,7 +6,7 @@ async function testDatabaseConnection() {
   
   try {
     // Importa o módulo de banco de dados apenas quando for executar o teste
-    const { testConnection } = require('./src/config/database');
+    const { testConnection } = require('./../src/config/database');
     
     console.log('>> Tentando conectar ao banco de dados com as seguintes configurações:');
     console.log(`    - Host: ${process.env.DB_HOST}:${process.env.DB_PORT}`);
