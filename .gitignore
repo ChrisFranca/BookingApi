@@ -1,0 +1,8 @@
+#conteiner do banco
+docker-compose.yml
+
+#arquivo de variaveis de ambiente
+.env
+
+#ignora pasta de dependências do node
+/node_modules
